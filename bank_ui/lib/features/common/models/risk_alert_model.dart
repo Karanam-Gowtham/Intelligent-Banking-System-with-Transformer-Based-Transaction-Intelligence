@@ -22,4 +22,28 @@ class RiskAlert {
     required this.description,
     required this.icon,
   });
+
+  RiskAlert copyWith({
+    String? id,
+    String? title,
+    String? amount,
+    String? timestamp,
+    String? riskLevel,
+    Color? riskColor,
+    String? source,
+    String? description,
+    IconData? icon,
+  }) {
+    return RiskAlert(
+      id: id ?? this.id,
+      title: title ?? this.title,
+      amount: amount ?? this.amount,
+      timestamp: timestamp ?? this.timestamp,
+      riskLevel: riskLevel ?? this.riskLevel,
+      riskColor: riskColor ?? this.riskColor,
+      source: source ?? this.source,
+      description: description ?? this.description,
+      icon: icon ?? this.icon,
+    );
+  }
 }

@@ -1,76 +1,89 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+import '../../core/constants/index.dart';
+import 'models/risk_alert_model.dart';
+import 'providers/risk_alerts_provider.dart';
+
+enum _RiskAlertsTab { flagged, blacklist }
 
 class RiskAlertsScreen extends StatefulWidget {
+  const RiskAlertsScreen({super.key});
+
   @override
   State<RiskAlertsScreen> createState() => _RiskAlertsScreenState();
 }
 
 class _RiskAlertsScreenState extends State<RiskAlertsScreen> {
-  String selectedTab = 'Flagged';
+  _RiskAlertsTab _selectedTab = _RiskAlertsTab.flagged;
 
   @override
   Widget build(BuildContext context) {
+    final provider = context.watch<RiskAlertsProvider>();
+    final alerts = _selectedTab == _RiskAlertsTab.flagged
+        ? provider.flaggedAlerts
+        : provider.blacklistAlerts;
+
     return Scaffold(
-      backgroundColor: Color(0xFFF5F7FA),
       body: SafeArea(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header
-            Padding(
-              padding: EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    "Risk Alerts",
-                    style: TextStyle(
-                      fontSize: 26,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF1A3B6B),
-                    ),
-                  ),
-                  SizedBox(height: 4),
-                  Text(
-                    "Monitor suspicious activity",
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey[600],
-                    ),
-                  ),
-                ],
-              ),
+            _ScreenHeader(
+              flaggedCount: provider.flaggedCount,
+              blacklistCount: provider.blacklistCount,
             ),
-
-            // Tabs
             Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16),
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppDimensions.paddingLg,
+              ),
               child: Row(
                 children: [
-                  _RiskTabButton(
-                    label: "Flagged",
-                    badge: "3",
-                    isSelected: selectedTab == 'Flagged',
-                    onTap: () => setState(() => selectedTab = 'Flagged'),
+                  Expanded(
+                    child: _RiskTabButton(
+                      label: 'Flagged',
+                      badge: provider.flaggedCount.toString(),
+                      isSelected: _selectedTab == _RiskAlertsTab.flagged,
+                      onTap: () {
+                        setState(() {
+                          _selectedTab = _RiskAlertsTab.flagged;
+                        });
+                      },
+                    ),
                   ),
-                  SizedBox(width: 12),
-                  _RiskTabButton(
-                    label: "Blacklist",
-                    badge: "2",
-                    isSelected: selectedTab == 'Blacklist',
-                    onTap: () => setState(() => selectedTab = 'Blacklist'),
+                  const SizedBox(width: AppDimensions.paddingMd),
+                  Expanded(
+                    child: _RiskTabButton(
+                      label: 'Blacklist',
+                      badge: provider.blacklistCount.toString(),
+                      isSelected: _selectedTab == _RiskAlertsTab.blacklist,
+                      onTap: () {
+                        setState(() {
+                          _selectedTab = _RiskAlertsTab.blacklist;
+                        });
+                      },
+                    ),
                   ),
                 ],
               ),
             ),
-
-            SizedBox(height: 20),
-
-            // Content
+            const SizedBox(height: AppDimensions.paddingLg),
             Expanded(
-              child: selectedTab == 'Flagged'
-                  ? _FlaggedAlerts()
-                  : _BlacklistAlerts(),
+              child: RefreshIndicator(
+                onRefresh: provider.refreshAlerts,
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 220),
+                  child: _AlertsBody(
+                    key: ValueKey<String>(
+                      '${_selectedTab.name}-${provider.isLoading}-${alerts.length}',
+                    ),
+                    alerts: alerts,
+                    isLoading: provider.isLoading,
+                    error: provider.error,
+                    selectedTab: _selectedTab,
+                  ),
+                ),
+              ),
             ),
           ],
         ),
@@ -79,12 +92,193 @@ class _RiskAlertsScreenState extends State<RiskAlertsScreen> {
   }
 }
 
-class _RiskTabButton extends StatelessWidget {
-  final String label;
-  final String badge;
-  final bool isSelected;
-  final VoidCallback onTap;
+class _ScreenHeader extends StatelessWidget {
+  const _ScreenHeader({
+    required this.flaggedCount,
+    required this.blacklistCount,
+  });
 
+  final int flaggedCount;
+  final int blacklistCount;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(AppDimensions.paddingLg),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Risk Alerts',
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: AppColors.darkTextColor,
+            ),
+          ),
+          const SizedBox(height: AppDimensions.paddingXs),
+          Text(
+            'Monitor suspicious activity before it becomes a customer issue.',
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: AppColors.lightTextColor),
+          ),
+          const SizedBox(height: AppDimensions.paddingLg),
+          Row(
+            children: [
+              Expanded(
+                child: _MetricCard(
+                  label: 'Flagged today',
+                  value: flaggedCount.toString(),
+                  accentColor: AppColors.riskSuspicious,
+                ),
+              ),
+              const SizedBox(width: AppDimensions.paddingMd),
+              Expanded(
+                child: _MetricCard(
+                  label: 'On blacklist',
+                  value: blacklistCount.toString(),
+                  accentColor: AppColors.riskBlocked,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AlertsBody extends StatelessWidget {
+  const _AlertsBody({
+    super.key,
+    required this.alerts,
+    required this.isLoading,
+    required this.error,
+    required this.selectedTab,
+  });
+
+  final List<RiskAlert> alerts;
+  final bool isLoading;
+  final String? error;
+  final _RiskAlertsTab selectedTab;
+
+  @override
+  Widget build(BuildContext context) {
+    if (isLoading && alerts.isEmpty) {
+      return ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppDimensions.paddingLg,
+          vertical: AppDimensions.paddingXxl,
+        ),
+        children: const [
+          SizedBox(height: 120),
+          Center(child: CircularProgressIndicator()),
+        ],
+      );
+    }
+
+    if (error != null && alerts.isEmpty) {
+      return ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(AppDimensions.paddingLg),
+        children: [
+          _StatusState(
+            icon: Icons.cloud_off_rounded,
+            title: 'Unable to load alerts',
+            message: error!,
+          ),
+        ],
+      );
+    }
+
+    if (alerts.isEmpty) {
+      final title = selectedTab == _RiskAlertsTab.flagged
+          ? 'No flagged alerts'
+          : 'Blacklist is clear';
+      final message = selectedTab == _RiskAlertsTab.flagged
+          ? 'New suspicious activity will appear here when detected.'
+          : 'Blocked entities will appear here after review.';
+
+      return ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(AppDimensions.paddingLg),
+        children: [
+          _StatusState(
+            icon: Icons.verified_user_outlined,
+            title: title,
+            message: message,
+          ),
+        ],
+      );
+    }
+
+    return ListView.separated(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(
+        AppDimensions.paddingLg,
+        0,
+        AppDimensions.paddingLg,
+        AppDimensions.paddingLg,
+      ),
+      itemCount: alerts.length,
+      separatorBuilder: (_, index) =>
+          const SizedBox(height: AppDimensions.paddingMd),
+      itemBuilder: (context, index) {
+        final alert = alerts[index];
+        return _AlertCard(
+          alert: alert,
+          isFlagged: selectedTab == _RiskAlertsTab.flagged,
+        );
+      },
+    );
+  }
+}
+
+class _MetricCard extends StatelessWidget {
+  const _MetricCard({
+    required this.label,
+    required this.value,
+    required this.accentColor,
+  });
+
+  final String label;
+  final String value;
+  final Color accentColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(AppDimensions.paddingLg),
+      decoration: BoxDecoration(
+        color: AppColors.whiteColor,
+        borderRadius: BorderRadius.circular(AppDimensions.radiusMd),
+        border: Border.all(color: accentColor.withValues(alpha: 0.18)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: AppColors.lightTextColor),
+          ),
+          const SizedBox(height: AppDimensions.paddingSm),
+          Text(
+            value,
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+              color: AppColors.darkTextColor,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RiskTabButton extends StatelessWidget {
   const _RiskTabButton({
     required this.label,
     required this.badge,
@@ -92,44 +286,58 @@ class _RiskTabButton extends StatelessWidget {
     required this.onTap,
   });
 
+  final String label;
+  final String badge;
+  final bool isSelected;
+  final VoidCallback onTap;
+
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return InkWell(
+      borderRadius: BorderRadius.circular(AppDimensions.radiusLg),
       onTap: onTap,
-      child: Container(
-        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppDimensions.paddingLg,
+          vertical: AppDimensions.paddingMd,
+        ),
         decoration: BoxDecoration(
-          color: isSelected ? Color(0xFF5B8DEF) : Colors.white,
-          borderRadius: BorderRadius.circular(20),
+          color: isSelected ? AppColors.primaryBlue : AppColors.whiteColor,
+          borderRadius: BorderRadius.circular(AppDimensions.radiusLg),
           border: Border.all(
-            color: isSelected ? Color(0xFF5B8DEF) : Color(0xFFE5E7EB),
+            color: isSelected ? AppColors.primaryBlue : AppColors.borderColor,
           ),
         ),
         child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Text(
               label,
-              style: TextStyle(
-                fontSize: 14,
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(
                 fontWeight: FontWeight.w600,
-                color: isSelected ? Colors.white : Color(0xFF1A3B6B),
+                color: isSelected
+                    ? AppColors.whiteColor
+                    : AppColors.darkTextColor,
               ),
             ),
-            SizedBox(width: 8),
+            const SizedBox(width: AppDimensions.paddingSm),
             Container(
-              padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppDimensions.paddingSm,
+                vertical: AppDimensions.paddingXs,
+              ),
               decoration: BoxDecoration(
                 color: isSelected
-                    ? Colors.white.withOpacity(0.3)
-                    : Color(0xFFE74C3C),
-                borderRadius: BorderRadius.circular(10),
+                    ? AppColors.whiteColor.withValues(alpha: 0.18)
+                    : AppColors.riskBlocked,
+                borderRadius: BorderRadius.circular(999),
               ),
               child: Text(
                 badge,
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.bold,
-                  color: isSelected ? Colors.white : Colors.white,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.whiteColor,
                 ),
               ),
             ),
@@ -140,256 +348,149 @@ class _RiskTabButton extends StatelessWidget {
   }
 }
 
-class _FlaggedAlerts extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    final alerts = [
-      RiskAlert(
-        title: "Coinbase",
-        amount: "₹10,000",
-        timestamp: "11:45 AM",
-        riskLevel: "Suspicious",
-        riskColor: Color(0xFFFF9800),
-        source: "Cryptocurrency",
-        description: "Unusual transaction to crypto exchange",
-        icon: Icons.trending_up,
-      ),
-      RiskAlert(
-        title: "Kraken",
-        amount: "₹15,000",
-        timestamp: "09:30 AM",
-        riskLevel: "High",
-        riskColor: Color(0xFFE74C3C),
-        source: "Crypto",
-        description: "Rare destination - crypto wallet detected",
-        icon: Icons.warning,
-      ),
-      RiskAlert(
-        title: "Binance",
-        amount: "₹5,000",
-        timestamp: "56:38 PM",
-        riskLevel: "Medium",
-        riskColor: Color(0xFFFF9800),
-        source: "Late-work",
-        description: "Unusually late transaction attempt",
-        icon: Icons.schedule,
-      ),
-    ];
-
-    return SingleChildScrollView(
-      padding: EdgeInsets.symmetric(horizontal: 16),
-      child: Column(
-        children: List.generate(
-          alerts.length,
-          (index) => Padding(
-            padding: EdgeInsets.only(bottom: 12),
-            child: _AlertCard(alert: alerts[index]),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _BlacklistAlerts extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    final alerts = [
-      RiskAlert(
-        title: "Unknown Transfer",
-        amount: "Blocked",
-        timestamp: "2 days ago",
-        riskLevel: "Blocked",
-        riskColor: Color(0xFFE74C3C),
-        source: "Suspicious",
-        description: "Account added to blacklist",
-        icon: Icons.block,
-      ),
-      RiskAlert(
-        title: "Fraudulent Address",
-        amount: "Blocked",
-        timestamp: "1 week ago",
-        riskLevel: "Blocked",
-        riskColor: Color(0xFFE74C3C),
-        source: "Merchant",
-        description: "Flagged as fraudulent merchant",
-        icon: Icons.error,
-      ),
-    ];
-
-    return SingleChildScrollView(
-      padding: EdgeInsets.symmetric(horizontal: 16),
-      child: Column(
-        children: List.generate(
-          alerts.length,
-          (index) => Padding(
-            padding: EdgeInsets.only(bottom: 12),
-            child: _AlertCard(alert: alerts[index]),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _AlertCard extends StatelessWidget {
-  final RiskAlert alert;
+  const _AlertCard({required this.alert, required this.isFlagged});
 
-  const _AlertCard({required this.alert});
+  final RiskAlert alert;
+  final bool isFlagged;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: EdgeInsets.all(16),
+      padding: const EdgeInsets.all(AppDimensions.paddingLg),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: alert.riskColor.withOpacity(0.2),
-          width: 1,
-        ),
+        color: AppColors.whiteColor,
+        borderRadius: BorderRadius.circular(AppDimensions.radiusMd),
+        border: Border.all(color: alert.riskColor.withValues(alpha: 0.18)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.03),
-            blurRadius: 8,
+            color: AppColors.shadowColor.withValues(alpha: 0.03),
+            blurRadius: 16,
+            offset: const Offset(0, 8),
           ),
         ],
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
-                padding: EdgeInsets.all(10),
+                padding: const EdgeInsets.all(AppDimensions.paddingMd),
                 decoration: BoxDecoration(
-                  color: alert.riskColor.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
+                  color: alert.riskColor.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(AppDimensions.radiusSm),
                 ),
                 child: Icon(
                   alert.icon,
                   color: alert.riskColor,
-                  size: 20,
+                  size: AppDimensions.iconMedium,
                 ),
               ),
-              SizedBox(width: 12),
+              const SizedBox(width: AppDimensions.paddingMd),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       alert.title,
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF1A3B6B),
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.darkTextColor,
                       ),
                     ),
-                    SizedBox(height: 4),
+                    const SizedBox(height: AppDimensions.paddingXs),
                     Text(
                       alert.description,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey[600],
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: AppColors.lightTextColor,
                       ),
                     ),
                   ],
                 ),
               ),
+              const SizedBox(width: AppDimensions.paddingSm),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   Container(
-                    padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppDimensions.paddingSm,
+                      vertical: AppDimensions.paddingXs,
+                    ),
                     decoration: BoxDecoration(
-                      color: alert.riskColor.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(6),
+                      color: alert.riskColor.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(
+                        AppDimensions.radiusSm,
+                      ),
                     ),
                     child: Text(
                       alert.riskLevel,
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
                         color: alert.riskColor,
                       ),
                     ),
                   ),
-                  SizedBox(height: 8),
+                  const SizedBox(height: AppDimensions.paddingSm),
                   Text(
                     alert.timestamp,
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: Colors.grey[400],
-                    ),
+                    style: Theme.of(
+                      context,
+                    ).textTheme.labelSmall?.copyWith(color: AppColors.greyText),
                   ),
                 ],
               ),
             ],
           ),
-          SizedBox(height: 12),
-          Divider(height: 1),
-          SizedBox(height: 12),
+          const SizedBox(height: AppDimensions.paddingLg),
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    "Amount",
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: Colors.grey[600],
-                    ),
-                  ),
-                  Text(
-                    alert.amount,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF1A3B6B),
-                    ),
-                  ),
-                ],
+              Expanded(
+                child: _DetailItem(label: 'Amount', value: alert.amount),
               ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    "Source",
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: Colors.grey[600],
-                    ),
-                  ),
-                  Text(
-                    alert.source,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF1A3B6B),
-                    ),
-                  ),
-                ],
+              Expanded(
+                child: _DetailItem(label: 'Source', value: alert.source),
               ),
-              Row(
-                children: [
-                  Container(
-                    padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: Color(0xFFF5F7FA),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Text(
-                      "More",
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF5B8DEF),
-                      ),
-                    ),
-                  ),
-                ],
+            ],
+          ),
+          const SizedBox(height: AppDimensions.paddingLg),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () {
+                    context.read<RiskAlertsProvider>().dismissAlert(alert.id);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('${alert.title} dismissed.')),
+                    );
+                  },
+                  child: const Text('Dismiss'),
+                ),
               ),
+              if (isFlagged) ...[
+                const SizedBox(width: AppDimensions.paddingMd),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: () {
+                      final moved = context
+                          .read<RiskAlertsProvider>()
+                          .addToBlacklist(alert.id);
+                      if (!moved) {
+                        return;
+                      }
+
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('${alert.title} added to blacklist.'),
+                        ),
+                      );
+                    },
+                    child: const Text('Blacklist'),
+                  ),
+                ),
+              ],
             ],
           ),
         ],
@@ -398,24 +499,77 @@ class _AlertCard extends StatelessWidget {
   }
 }
 
-class RiskAlert {
-  final String title;
-  final String amount;
-  final String timestamp;
-  final String riskLevel;
-  final Color riskColor;
-  final String source;
-  final String description;
-  final IconData icon;
+class _DetailItem extends StatelessWidget {
+  const _DetailItem({required this.label, required this.value});
 
-  RiskAlert({
-    required this.title,
-    required this.amount,
-    required this.timestamp,
-    required this.riskLevel,
-    required this.riskColor,
-    required this.source,
-    required this.description,
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: Theme.of(
+            context,
+          ).textTheme.labelSmall?.copyWith(color: AppColors.lightTextColor),
+        ),
+        const SizedBox(height: AppDimensions.paddingXs),
+        Text(
+          value,
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            fontWeight: FontWeight.w600,
+            color: AppColors.darkTextColor,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _StatusState extends StatelessWidget {
+  const _StatusState({
     required this.icon,
+    required this.title,
+    required this.message,
   });
+
+  final IconData icon;
+  final String title;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(top: 80),
+      padding: const EdgeInsets.all(AppDimensions.paddingXxl),
+      decoration: BoxDecoration(
+        color: AppColors.whiteColor,
+        borderRadius: BorderRadius.circular(AppDimensions.radiusMd),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, size: 32, color: AppColors.primaryBlue),
+          const SizedBox(height: AppDimensions.paddingMd),
+          Text(
+            title,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: AppColors.darkTextColor,
+            ),
+          ),
+          const SizedBox(height: AppDimensions.paddingSm),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: AppColors.lightTextColor),
+          ),
+        ],
+      ),
+    );
+  }
 }
