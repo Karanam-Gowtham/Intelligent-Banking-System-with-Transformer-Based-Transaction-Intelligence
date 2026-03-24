@@ -1,23 +1,24 @@
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:bank_ui/main.dart';
 
 void main() {
-  testWidgets('risk alerts screen loads provider data', (
+  testWidgets('home screen can navigate to risk alerts', (
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(const MyApp());
 
+    expect(find.text('Good Morning'), findsOneWidget);
     expect(find.text('Risk Alerts'), findsOneWidget);
-    expect(find.text('Flagged'), findsOneWidget);
-    expect(find.text('Blacklist'), findsOneWidget);
 
+    await tester.tap(find.text('Risk Alerts'));
+    await tester.pumpAndSettle();
     await tester.pump(const Duration(milliseconds: 600));
     await tester.pumpAndSettle();
 
-    expect(find.text('Coinbase'), findsOneWidget);
     expect(find.text('Priority queue'), findsOneWidget);
+    expect(find.text('Coinbase'), findsOneWidget);
     expect(find.text('Details'), findsWidgets);
   });
 
@@ -30,6 +31,8 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
 
     await tester.pumpWidget(const MyApp());
+    await tester.tap(find.text('Risk Alerts'));
+    await tester.pumpAndSettle();
     await tester.pump(const Duration(milliseconds: 600));
     await tester.pumpAndSettle();
 
