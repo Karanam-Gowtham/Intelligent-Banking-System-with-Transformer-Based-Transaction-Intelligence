@@ -8,11 +8,13 @@ class RiskAlertsProvider extends ChangeNotifier {
   List<RiskAlert> _blacklistAlerts = [];
   bool _isLoading = false;
   String? _error;
+  DateTime? _lastUpdated;
 
   List<RiskAlert> get flaggedAlerts => _flaggedAlerts;
   List<RiskAlert> get blacklistAlerts => _blacklistAlerts;
   bool get isLoading => _isLoading;
   String? get error => _error;
+  DateTime? get lastUpdated => _lastUpdated;
 
   int get flaggedCount => _flaggedAlerts.length;
   int get blacklistCount => _blacklistAlerts.length;
@@ -29,6 +31,7 @@ class RiskAlertsProvider extends ChangeNotifier {
       await Future<void>.delayed(Duration(milliseconds: isRefresh ? 250 : 500));
       _flaggedAlerts = _buildFlaggedAlerts();
       _blacklistAlerts = _buildBlacklistAlerts();
+      _lastUpdated = DateTime.now();
       _error = null;
     } catch (_) {
       _error = 'Unable to load risk alerts right now.';
@@ -47,6 +50,7 @@ class RiskAlertsProvider extends ChangeNotifier {
 
     if (flaggedBefore != _flaggedAlerts.length ||
         blacklistBefore != _blacklistAlerts.length) {
+      _touch();
       notifyListeners();
     }
   }
@@ -64,12 +68,42 @@ class RiskAlertsProvider extends ChangeNotifier {
         .copyWith(
           riskLevel: 'Blocked',
           riskColor: AppColors.riskBlocked,
-          source: 'Blacklist',
-          description: 'This merchant has been moved to the blocked watchlist.',
+          source: 'Manual block',
+          timestamp: 'Just now',
+          description:
+              'Merchant moved to the blocked watchlist after analyst review.',
           icon: Icons.block_rounded,
         );
 
     _blacklistAlerts.insert(0, alert);
+    _touch();
+    notifyListeners();
+    return true;
+  }
+
+  bool moveToFlaggedReview(String alertId) {
+    final alertIndex = _blacklistAlerts.indexWhere(
+      (alert) => alert.id == alertId,
+    );
+    if (alertIndex == -1) {
+      return false;
+    }
+
+    final alert = _blacklistAlerts
+        .removeAt(alertIndex)
+        .copyWith(
+          riskLevel: 'Review',
+          riskColor: AppColors.riskSuspicious,
+          source: 'Manual review',
+          timestamp: 'Just now',
+          amount: 'Pending review',
+          description:
+              'Merchant moved back to the flagged queue for analyst review.',
+          icon: Icons.pending_actions_rounded,
+        );
+
+    _flaggedAlerts.insert(0, alert);
+    _touch();
     notifyListeners();
     return true;
   }
@@ -83,6 +117,10 @@ class RiskAlertsProvider extends ChangeNotifier {
     if (value) {
       _error = null;
     }
+  }
+
+  void _touch() {
+    _lastUpdated = DateTime.now();
   }
 
   List<RiskAlert> _buildFlaggedAlerts() {
